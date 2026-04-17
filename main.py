@@ -70,6 +70,7 @@ def step_scrape(url: str, delay: float) -> tuple[list[dict], str]:
 # ─────────────────────────────────────────────────────────
 
 def step_search(films: list[dict], client: TMDBClient) -> tuple[list[int], list[str]]:
+    from src.letterboxd import fetch_film_director
     console.rule("[bold cyan]Step 2 — Mencari Film di TMDB[/bold cyan]")
     console.print()
 
@@ -88,14 +89,23 @@ def step_search(films: list[dict], client: TMDBClient) -> tuple[list[int], list[
 
         for film in films:
             title = film.get("title", "Unknown")
-            year  = film.get("year")  # tersedia dari Letterboxd scraper
-            progress.update(task, description=f"[cyan]Mencari:[/cyan] {title[:45]}")
-
-            movie_id = client.search_movie(title, year=year)
+            year  = film.get("year")
+            target_link = film.get("target_link")
+            
+            # 1. Fetch director dari detail page Letterboxd
+            progress.update(task, description=f"[cyan]Mengecek info:[/cyan] {title[:30]}")
+            director = None
+            if target_link:
+                director = fetch_film_director(target_link)
+            
+            # 2. Cari di TMDB
+            progress.update(task, description=f"[cyan]Mencari di TMDB:[/cyan] {title[:35]}")
+            movie_id = client.search_movie(title, year=year, director=director)
 
             if movie_id:
                 found_ids.append(movie_id)
-                progress.console.print(f"  [green]✓[/green] {title} ({year or '?'})  [dim]→ ID: {movie_id}[/dim]")
+                dir_info = f", Dir: {director}" if director else ""
+                progress.console.print(f"  [green]✓[/green] {title} ({year or '?'}{dir_info})  [dim]→ ID: {movie_id}[/dim]")
             else:
                 not_found.append(title)
                 progress.console.print(f"  [yellow]✗[/yellow] {title}  [dim](tidak ditemukan di TMDB)[/dim]")

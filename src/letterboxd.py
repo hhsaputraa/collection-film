@@ -1,6 +1,7 @@
 """
 letterboxd.py — Scrape film dari sebuah Letterboxd list (dengan pagination)
 """
+import json
 import re
 import time
 from urllib.parse import urlparse
@@ -176,3 +177,39 @@ def scrape_list(url: str, delay: float = 1.0) -> tuple[list[dict], str]:
         time.sleep(delay)
 
     return all_films, list_name
+
+
+def fetch_film_director(target_link: str) -> str | None:
+    """
+    Ambil nama sutradara dari halaman spesifik film di Letterboxd.
+    Menggunakan JSON-LD yang ada di dalam tag <script type="application/ld+json">.
+    """
+    url = f"https://letterboxd.com{target_link}"
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "lxml")
+        
+        script = soup.find("script", type="application/ld+json")
+        if not script or not script.string:
+            return None
+        
+        raw = script.string.strip()
+        if raw.startswith("/* <![CDATA[ */"):
+            raw = raw[15:]
+        if raw.endswith("/* ]]> */"):
+            raw = raw[:-9]
+            
+        data = json.loads(raw.strip())
+        directors = data.get("director", [])
+        if isinstance(directors, dict):
+            directors = [directors]
+            
+        for d in directors:
+            name = d.get("name")
+            if name:
+                return name
+    except Exception as e:
+        console.log(f"  [dim]Gagal mengambil sutradara dari {target_link}: {e}[/dim]")
+        
+    return None

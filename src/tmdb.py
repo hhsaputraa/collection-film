@@ -2,6 +2,7 @@
 tmdb.py — Semua interaksi dengan TMDB API (search, create list, add items)
 """
 import time
+import difflib
 from typing import Optional
 
 import requests
@@ -82,11 +83,41 @@ class TMDBClient:
     #  Search Film
     # ─────────────────────────────────────────────
 
-    def search_movie(self, title: str, year: Optional[int] = None) -> Optional[int]:
+    def _is_director_match(self, movie_id: int, target_director: str) -> bool:
+        """Fetch credits for a movie and check if the director matches target_director."""
+        url = f"{TMDB_BASE_V3}/movie/{movie_id}?append_to_response=credits"
+        try:
+            resp = self._session.get(url, timeout=10)
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+            crew = data.get("credits", {}).get("crew", [])
+            for c in crew:
+                if c.get("job") == "Director":
+                    tmdb_dir = c.get("name", "")
+                    if not tmdb_dir:
+                        continue
+                    
+                    # Normalisasi untuk perbandingan
+                    n1 = target_director.lower()
+                    n2 = tmdb_dir.lower()
+                    
+                    if n1 in n2 or n2 in n1:
+                        return True
+                    if difflib.SequenceMatcher(None, n1, n2).ratio() > 0.8:
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def search_movie(
+        self, title: str, year: Optional[int] = None, director: Optional[str] = None
+    ) -> Optional[int]:
         """
-        Cari film di TMDB berdasarkan judul (dan tahun opsional).
+        Cari film di TMDB berdasarkan judul (dan opsional tahun & sutradara).
         Jika ada tahun, coba search dengan tahun dulu untuk akurasi lebih tinggi.
         Fallback: cari tanpa tahun.
+        Jika ada sutradara, pastikan credits "Director" cocok untuk top kandidat.
         Returns TMDB movie_id jika ditemukan, None jika tidak.
         """
         params: dict = {
@@ -108,10 +139,16 @@ class TMDBClient:
         if not results:
             # Fallback: cari tanpa filter tahun
             if year:
-                return self.search_movie(title, year=None)
+                return self.search_movie(title, year=None, director=director)
             return None
 
-        # Ambil hasil pertama (TMDB sort by relevance)
+        # Jika ada sutradara, periksa 3 hasil teratas
+        if director:
+            for res in results[:3]:
+                if self._is_director_match(res["id"], director):
+                    return res["id"]
+
+        # Jika tidak ada sutradara atau cocok gagal, gunakan yang paling relevan
         return results[0]["id"]
 
     # ─────────────────────────────────────────────
