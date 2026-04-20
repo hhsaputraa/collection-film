@@ -112,7 +112,7 @@ class TMDBClient:
 
     def search_movie(
         self, title: str, year: Optional[int] = None, director: Optional[str] = None
-    ) -> Optional[int]:
+    ) -> Optional[dict]:
         """
         Cari film di TMDB berdasarkan judul (dan opsional tahun & sutradara).
         Jika ada tahun, coba search dengan tahun dulu untuk akurasi lebih tinggi.
@@ -127,9 +127,11 @@ class TMDBClient:
             "page": 1,
         }
         if year:
-            params["primary_release_year"] = year
+            params["first_air_date_year"] = year # untuk TV
+            # Note: multi search doesn't support primary_release_year directly in some versions, 
+            # but we'll try to let TMDB handle relevance.
 
-        url = f"{TMDB_BASE_V3}/search/movie"
+        url = f"{TMDB_BASE_V3}/search/multi"
         resp = self._session.get(url, params=params, timeout=10)
         resp.raise_for_status()
 
@@ -142,14 +144,24 @@ class TMDBClient:
                 return self.search_movie(title, year=None, director=director)
             return None
 
+        # Filter hanya movie atau tv dari multi-search
+        results = [r for r in results if r.get("media_type") in ["movie", "tv"]]
+        if not results:
+            return None
+
         # Jika ada sutradara, periksa 3 hasil teratas
+        selected_result = results[0]
         if director:
             for res in results[:3]:
                 if self._is_director_match(res["id"], director):
-                    return res["id"]
+                    selected_result = res
+                    break
 
-        # Jika tidak ada sutradara atau cocok gagal, gunakan yang paling relevan
-        return results[0]["id"]
+        # Pastikan ada media_type (default ke movie karena kita pakai search/movie)
+        if "media_type" not in selected_result:
+            selected_result["media_type"] = "movie"
+
+        return selected_result
 
     # ─────────────────────────────────────────────
     #  Create List
@@ -203,11 +215,18 @@ class TMDBClient:
     # ─────────────────────────────────────────────
 
     def add_items_to_list(
-        self, list_id: int, movie_ids: list[int], chunk_size: int = 20
+        self, 
+        list_id: int, 
+        items: list[dict], 
+        chunk_size: int = 20,
+        on_item_start: Optional[callable] = None
     ) -> dict:
         """
         Tambahkan film ke list TMDB (v4).
         Mendukung bulk insert dalam batch (max 20 per request sesuai limit TMDB).
+
+        - items: list dari dict {"id": movie_id, "title": title}
+        - on_item_start: callback function yang dipanggil sebelum item ditambahkan
 
         Returns dict berisi jumlah success dan failed.
         """
@@ -216,11 +235,17 @@ class TMDBClient:
         total_failed = 0
 
         # Bagi menjadi chunks agar tidak melebihi batasan API
-        for i in range(0, len(movie_ids), chunk_size):
-            chunk = movie_ids[i : i + chunk_size]
+        for i in range(0, len(items), chunk_size):
+            chunk = items[i : i + chunk_size]
+            
+            # Panggil callback untuk setiap item dalam chunk (visual progress)
+            if on_item_start:
+                for item in chunk:
+                    on_item_start(item)
+
             payload = {
                 "items": [
-                    {"media_type": "movie", "media_id": mid} for mid in chunk
+                    {"media_type": "movie", "media_id": item["id"]} for item in chunk
                 ]
             }
 
@@ -247,7 +272,7 @@ class TMDBClient:
                 total_success += len(chunk)
 
             # Jangan spam API
-            if i + chunk_size < len(movie_ids):
+            if i + chunk_size < len(items):
                 time.sleep(0.5)
 
         return {"success": total_success, "failed": total_failed}

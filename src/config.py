@@ -31,5 +31,9 @@ def get_config() -> dict:
         "account_id": os.getenv("TMDB_ACCOUNT_ID", "").strip(),
         "language": os.getenv("TMDB_LANGUAGE", "en-US"),
         "scrape_delay": float(os.getenv("SCRAPE_DELAY", "1.0")),
+        # Supabase config
+        "supabase_url": os.getenv("SUPABASE_URL", "").strip(),
+        "supabase_key": os.getenv("SUPABASE_KEY", "").strip(),
+        "supabase_user_id": os.getenv("SUPABASE_USER_ID", "").strip(),
     }
 
