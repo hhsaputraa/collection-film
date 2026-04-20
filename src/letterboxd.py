@@ -121,7 +121,7 @@ def _get_list_name(soup: BeautifulSoup, url: str) -> str:
     return "Letterboxd Collection"
 
 
-def scrape_list(url: str, delay: float = 1.0) -> tuple[list[dict], str]:
+def scrape_list(url: str, delay: float = 1.0, session: requests.Session = None) -> tuple[list[dict], str]:
     """
     Scrape semua film dari sebuah Letterboxd list URL.
 
@@ -134,8 +134,9 @@ def scrape_list(url: str, delay: float = 1.0) -> tuple[list[dict], str]:
     list_name = ""
     page = 1
 
-    session = requests.Session()
-    session.headers.update(HEADERS)
+    if session is None:
+        session = requests.Session()
+        session.headers.update(HEADERS)
 
     while True:
         page_url = f"{url}page/{page}/" if page > 1 else url
@@ -179,14 +180,22 @@ def scrape_list(url: str, delay: float = 1.0) -> tuple[list[dict], str]:
     return all_films, list_name
 
 
-def fetch_film_director(target_link: str) -> str | None:
+def fetch_film_director(target_link: str, session: requests.Session = None) -> str | None:
     """
     Ambil nama sutradara dari halaman spesifik film di Letterboxd.
     Menggunakan JSON-LD yang ada di dalam tag <script type="application/ld+json">.
     """
     url = f"https://letterboxd.com{target_link}"
     try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
+        # Gunakan session jika ada, jika tidak pakai requests standar
+        if session:
+            # Tambahkan Referer untuk mengelabui Cloudflare
+            headers = {**session.headers, "Referer": "https://letterboxd.com/"}
+            response = session.get(url, headers=headers, timeout=10)
+        else:
+            headers = {**HEADERS, "Referer": "https://letterboxd.com/"}
+            response = requests.get(url, headers=headers, timeout=10)
+            
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
         

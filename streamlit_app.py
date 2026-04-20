@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import sys
+import requests
 from pathlib import Path
 
 # Import logic dari src
@@ -122,9 +123,16 @@ if start_btn:
         logs = st.container()
 
         try:
+            # Persistent session untuk menghindari blokir
+            session = requests.Session()
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            })
+
             # ── Step 1: Scrape ──────────────────────────
             status.update(label="📡 Mengambil data dari Letterboxd...", state="running")
-            films, lb_list_name = scrape_list(lb_url, delay=config["scrape_delay"])
+            films, lb_list_name = scrape_list(lb_url, delay=config["scrape_delay"], session=session)
             tmdb_list_name = list_name_override or lb_list_name
             status.write(f"✅ Ditemukan **{len(films)}** film di Letterboxd: **{lb_list_name}**")
             
@@ -145,11 +153,16 @@ if start_btn:
                 # 1. Fetch Director (untuk akurasi tinggi)
                 director = None
                 if target_link:
-                    status.write(f"🎞️ Mencari info: **{title}**...")
-                    director = fetch_film_director(target_link)
+                    # Logging status yang lebih detail ke user
+                    status.write(f"📽️ Mengecek detail: **{title}**...")
+                    director = fetch_film_director(target_link, session=session)
+                    if director:
+                        status.write(f"   └─ Sutradara ditemukan: **{director}** 🎯")
+                    else:
+                        status.write(f"   └─ Sutradara tidak ditemukan (Dilewati) ⚠️")
                 
                 # 2. Search process
-                status.write(f"🔎 Mencari di TMDB: **{title}** ({year or '?'}{f', Dir: {director}' if director else ''})")
+                status.write(f"🔎 Mencari di TMDB: **{title}** ({year or '?'})")
                 movie_data = tmdb_client.search_movie(title, year=year, director=director)
                 
                 if movie_data:
