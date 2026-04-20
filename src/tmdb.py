@@ -114,52 +114,78 @@ class TMDBClient:
         self, title: str, year: Optional[int] = None, director: Optional[str] = None
     ) -> Optional[dict]:
         """
-        Cari film di TMDB berdasarkan judul (dan opsional tahun & sutradara).
-        Jika ada tahun, coba search dengan tahun dulu untuk akurasi lebih tinggi.
-        Fallback: cari tanpa tahun.
-        Jika ada sutradara, pastikan credits "Director" cocok untuk top kandidat.
-        Returns TMDB movie_id jika ditemukan, None jika tidak.
+        Cari film di TMDB.
+        Prioritas 1: /search/movie (support primary_release_year)
+        Prioritas 2: /search/tv (support first_air_date_year)
+        Prioritas 3: /search/multi (tanpa filter tahun)
         """
-        params: dict = {
+        results = []
+        
+        # 1. Coba cari sebagai MOVIE (karena Letterboxd mayoritas film)
+        movie_params = {
             "query": title,
             "language": self.language,
             "include_adult": "false",
             "page": 1,
         }
         if year:
-            params["first_air_date_year"] = year # untuk TV
-            # Note: multi search doesn't support primary_release_year directly in some versions, 
-            # but we'll try to let TMDB handle relevance.
+            movie_params["primary_release_year"] = year
+            
+        try:
+            resp = self._session.get(f"{TMDB_BASE_V3}/search/movie", params=movie_params, timeout=10)
+            resp.raise_for_status()
+            movie_results = resp.json().get("results", [])
+            for r in movie_results:
+                r["media_type"] = "movie"
+            results.extend(movie_results)
+        except Exception:
+            pass
 
-        url = f"{TMDB_BASE_V3}/search/multi"
-        resp = self._session.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-
-        data = resp.json()
-        results = data.get("results", [])
-
+        # 2. Jika tidak ada hasil, coba cari sebagai TV (opsional jika bukan list film murni)
         if not results:
-            # Fallback: cari tanpa filter tahun
+            tv_params = movie_params.copy()
             if year:
-                return self.search_movie(title, year=None, director=director)
-            return None
+                # Ganti key param untuk TV
+                tv_params.pop("primary_release_year", None)
+                tv_params["first_air_date_year"] = year
+            try:
+                resp = self._session.get(f"{TMDB_BASE_V3}/search/tv", params=tv_params, timeout=10)
+                resp.raise_for_status()
+                tv_results = resp.json().get("results", [])
+                for r in tv_results:
+                    r["media_type"] = "tv"
+                results.extend(tv_results)
+            except Exception:
+                pass
 
-        # Filter hanya movie atau tv dari multi-search
-        results = [r for r in results if r.get("media_type") in ["movie", "tv"]]
+        # 3. Fallback: Multi-search tanpa filter tahun jika masih zonk
+        if not results:
+            multi_params = {
+                "query": title,
+                "language": self.language,
+                "include_adult": "false",
+                "page": 1,
+            }
+            try:
+                resp = self._session.get(f"{TMDB_BASE_V3}/search/multi", params=multi_params, timeout=10)
+                resp.raise_for_status()
+                results = resp.json().get("results", [])
+                results = [r for r in results if r.get("media_type") in ["movie", "tv"]]
+            except Exception:
+                pass
+
         if not results:
             return None
 
-        # Jika ada sutradara, periksa 3 hasil teratas
+        # Pilih kandidat terbaik
         selected_result = results[0]
+        
+        # Validasi sutradara jika ada (tingkatkan ke 5 hasil teratas)
         if director:
-            for res in results[:3]:
+            for res in results[:5]:
                 if self._is_director_match(res["id"], director):
                     selected_result = res
                     break
-
-        # Pastikan ada media_type (default ke movie karena kita pakai search/movie)
-        if "media_type" not in selected_result:
-            selected_result["media_type"] = "movie"
 
         return selected_result
 

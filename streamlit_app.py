@@ -166,8 +166,13 @@ if start_btn:
                 movie_data = tmdb_client.search_movie(title, year=year, director=director)
                 
                 if movie_data:
+                    m_title = movie_data.get('title') or movie_data.get('name')
+                    m_year = (movie_data.get('release_date') or movie_data.get('first_air_date') or "   ")[:4]
+                    m_type = movie_data.get('media_type', 'movie').upper()
+                    status.write(f"   └─ Match found: **{m_title}** ({m_year}) [{m_type}] ✅")
                     found_movies.append(movie_data)
                 else:
+                    status.write(f"   └─ Movie tidak ditemukan di TMDB ❌")
                     not_found.append(title)
                 
                 time.sleep(0.1) # Small delay for smoother UI
