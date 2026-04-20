@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Import logic dari src
 from src.config import get_config
-from src.letterboxd import scrape_list
+from src.letterboxd import scrape_list, fetch_film_director
 from src.tmdb import TMDBClient
 from src.supabase_client import SupabaseClient
 
@@ -136,15 +136,22 @@ if start_btn:
             for i, film in enumerate(films):
                 title = film.get("title", "Unknown")
                 year = film.get("year")
+                target_link = film.get("target_link")
                 
                 # Update UI
                 progress_val = int(((i + 1) / len(films)) * 50) # 50% max for search phase
                 progress_bar.progress(progress_val)
-                status.write(f"🔎 Mencari: {title} ({year or '?'})")
                 
-                # Search process
-                # Note: Untuk Streamlit, kita ambil metadata lengkap
-                movie_data = tmdb_client.search_movie(title, year=year)
+                # 1. Fetch Director (untuk akurasi tinggi)
+                director = None
+                if target_link:
+                    status.write(f"🎞️ Mencari info: **{title}**...")
+                    director = fetch_film_director(target_link)
+                
+                # 2. Search process
+                status.write(f"🔎 Mencari di TMDB: **{title}** ({year or '?'}{f', Dir: {director}' if director else ''})")
+                movie_data = tmdb_client.search_movie(title, year=year, director=director)
+                
                 if movie_data:
                     found_movies.append(movie_data)
                 else:
